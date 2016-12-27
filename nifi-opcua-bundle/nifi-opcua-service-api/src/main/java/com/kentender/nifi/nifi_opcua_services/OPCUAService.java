@@ -23,7 +23,7 @@ import org.apache.nifi.processor.exception.ProcessException;
 
 @Tags({"example"})
 @CapabilityDescription("Example Service API.")
-public interface MyService extends ControllerService {
+public interface OPCUAService extends ControllerService {
 
 	byte[] getValue(String reqTagname) throws ProcessException;
 

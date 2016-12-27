@@ -76,7 +76,7 @@ import org.opcfoundation.ua.transport.security.SecurityPolicy;
 
 @Tags({ "example"})
 @CapabilityDescription("Example ControllerService implementation of MyService.")
-public class StandardMyService extends AbstractControllerService implements MyService {
+public class StandardOPCUAService extends AbstractControllerService implements OPCUAService {
 	
 		// TODO add scope for vars
 	public static final Locale ENGLISH = Locale.ENGLISH;
