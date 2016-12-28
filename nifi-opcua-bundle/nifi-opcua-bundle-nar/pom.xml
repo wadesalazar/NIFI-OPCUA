@@ -36,6 +36,13 @@
             <artifactId>nifi-opcua-bundle-processors</artifactId>
             <version>0.0.1-SNAPSHOT</version>
         </dependency>
+        <dependency>
+        	<groupId>com.kentender.nifi</groupId>
+        	<artifactId>nifi-opcua-service-api-nar</artifactId>
+        	<version>0.0.1-SNAPSHOT</version>
+        	<type>nar</type>
+        	<scope>provided</scope>
+        </dependency>
     </dependencies>
 
 </project>

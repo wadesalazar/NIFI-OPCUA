@@ -35,6 +35,7 @@
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-standard-services-api-nar</artifactId>
             <type>nar</type>
+            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>com.kentender.nifi</groupId>
