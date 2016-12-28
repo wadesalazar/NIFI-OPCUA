@@ -70,6 +70,8 @@ import org.opcfoundation.ua.transport.security.PrivKey;
 import org.opcfoundation.ua.transport.security.SecurityPolicy;
 import org.opcfoundation.ua.utils.CertificateUtils;
 
+import com.kentender.nifi.nifi_opcua_services.OPCUAService;
+
 @Tags({"OPC", "OPCUA", "UA"})
 @CapabilityDescription("Retrieves the namespace from an OPC UA server")
 @SeeAlso({})
@@ -83,7 +85,7 @@ public class GetExpandedNodeIds extends AbstractProcessor {
 	final Locale ENGLISH = Locale.ENGLISH;
 	static int max_recursiveDepth = 0;
 	static int recursiveDepth = 0;
-	static StringBuilder stringBuilder = new StringBuilder();
+	
 	static String url = "";
 	static String applicationName = "";
 	static KeyPair myClientApplicationInstanceCertificate = null;
@@ -93,6 +95,13 @@ public class GetExpandedNodeIds extends AbstractProcessor {
 	static String starting_node = null;
 	static EndpointDescription[] endpoints = null;
 	static Client myClient = null;
+
+	public static final PropertyDescriptor OPCUA_SERVICE = new PropertyDescriptor.Builder()
+			  .name("OPC UA Service")
+			  .description("Specifies the OPC UA Service that can be used to access data")
+			  .required(true)
+			  .identifiesControllerService(OPCUAService.class)
+			  .build();
 	
 	public static final PropertyDescriptor ENDPOINT = new PropertyDescriptor
             .Builder().name("Endpoint URL")
@@ -161,6 +170,7 @@ public class GetExpandedNodeIds extends AbstractProcessor {
     @Override
     protected void init(final ProcessorInitializationContext context) {
         final List<PropertyDescriptor> descriptors = new ArrayList<PropertyDescriptor>();
+        descriptors.add(OPCUA_SERVICE);
         descriptors.add(ENDPOINT);
         descriptors.add(RECURSIVE_DEPTH);
         descriptors.add(SECURITY_POLICY);
@@ -199,76 +209,6 @@ public class GetExpandedNodeIds extends AbstractProcessor {
 		max_recursiveDepth = Integer.valueOf(context.getProperty(RECURSIVE_DEPTH).getValue());
 		url = context.getProperty(ENDPOINT).getValue();
 		starting_node = context.getProperty(STARTING_NODE).getValue();
-		
-		// Load Client's certificates from file or create new certs
-		if (context.getProperty(SECURITY_POLICY).getValue() == "None"){
-			// Build OPC Client
-			myClientApplicationInstanceCertificate = null;
-						
-		} else {
-
-			myHttpsCertificate = Utils.getHttpsCert(applicationName);
-			
-			// Load or create HTTP and Client's Application Instance Certificate and key
-			switch (context.getProperty(SECURITY_POLICY).getValue()) {
-				
-				case "Basic128Rsa15":{
-					myClientApplicationInstanceCertificate = Utils.getCert(applicationName, SecurityPolicy.BASIC128RSA15);
-					break;
-					
-				}case "Basic256": {
-					myClientApplicationInstanceCertificate = Utils.getCert(applicationName, SecurityPolicy.BASIC256);
-					break;
-					
-				}case "Basic256Rsa256": {
-					myClientApplicationInstanceCertificate = Utils.getCert(applicationName, SecurityPolicy.BASIC256SHA256);
-					break;
-				}
-			}
-		}
-		
-		// Create Client
-		// TODO need to move this to service or on schedule method
-		myClient = Client.createClientApplication( myClientApplicationInstanceCertificate ); 
-		myClient.getApplication().getHttpsSettings().setKeyPair(myHttpsCertificate);
-		myClient.getApplication().addLocale( ENGLISH );
-		myClient.getApplication().setApplicationName( new LocalizedText(applicationName, Locale.ENGLISH) );
-		myClient.getApplication().setProductUri( "urn:" + applicationName );
-		
-		// Retrieve and filter end point list
-		// TODO need to move this to service or on schedule method
-		
-		try {
-			endpoints = myClient.discoverEndpoints(url);
-		} catch (ServiceResultException e1) {
-			// TODO Auto-generated catch block
-			
-			logger.error(e1.getMessage());
-		}
-		
-		switch (context.getProperty(SECURITY_POLICY).getValue()) {
-			
-			case "Basic128Rsa15":{
-				endpoints = selectBySecurityPolicy(endpoints,SecurityPolicy.BASIC128RSA15);
-				break;
-			}
-			case "Basic256": {
-				endpoints = selectBySecurityPolicy(endpoints,SecurityPolicy.BASIC256);
-				break;
-			}	
-			case "Basic256Rsa256": {
-				endpoints = selectBySecurityPolicy(endpoints,SecurityPolicy.BASIC256SHA256);
-				break;
-			}
-			default :{
-				endpoints = selectBySecurityPolicy(endpoints,SecurityPolicy.NONE);
-				logger.error("No security mode specified");
-				break;
-			}
-		}
-		
-		// For now only opc.tcp has been implemented
-		endpoints = selectByProtocol(endpoints, "opc.tcp");
 				
     }
 	
@@ -276,27 +216,20 @@ public class GetExpandedNodeIds extends AbstractProcessor {
 	public void onTrigger(ProcessContext context, ProcessSession session) throws ProcessException {
 		
 		final ComponentLog logger = getLogger();
-		recursiveDepth = 0;
+		StringBuilder stringBuilder = new StringBuilder();
 		
-		// Create a session using end point description
-		SessionChannel mySession = null;
-		
-		try {
-			mySession = myClient.createSessionChannel(endpoints[0]);
-			mySession.activate();	
-		} catch (ServiceResultException e1) {
-			// TODO Auto-generated catch block
-			logger.error(e1.getMessage());
-		}
+		 // Submit to getValue
+        final OPCUAService opcUAService = context.getProperty(OPCUA_SERVICE)
+        		.asControllerService(OPCUAService.class);
 		
 		// Set the starting node and parse the node tree
 		if ( starting_node == null) {
 			logger.debug("Parse the root node " + new ExpandedNodeId(Identifiers.RootFolder));
-			parseNodeTree(mySession, new ExpandedNodeId(Identifiers.RootFolder));
+			opcUAService.getNameSpace(print_indentation, max_recursiveDepth, new ExpandedNodeId(Identifiers.RootFolder));
 			
 		} else {
 			logger.debug("Parse the result list for node " + new ExpandedNodeId(NodeId.parseNodeId(starting_node)));
-			parseNodeTree(mySession, new ExpandedNodeId(NodeId.parseNodeId(starting_node)));
+			opcUAService.getNameSpace(print_indentation, max_recursiveDepth, new ExpandedNodeId(NodeId.parseNodeId(starting_node)));
 		}
 		
 		// Write the results back out to a flow file
@@ -317,110 +250,7 @@ public class GetExpandedNodeIds extends AbstractProcessor {
         
         // Reset our stringBuilder
         stringBuilder.setLength(0);
-        
-        // Close the session 
-        try {
-			mySession.close();
-		} catch (ServiceFaultException e) {
-			// TODO Auto-generated catch block
-			logger.error(e.getMessage());
-		} catch (ServiceResultException e) {
-			// TODO Auto-generated catch block
-			logger.error(e.getMessage());
-		}
-        /*
-         * ( is this necessary or common practice.  
-         * Timeouts clean up abandoned sessions ??? )*
-         */
 	}
 	
-	private static void parseNodeTree(SessionChannel sessionChannel, ExpandedNodeId expandedNodeId){
-		
-		// Conditions for exiting this function
-		// If provided node is null ( should not happen )
-		if(expandedNodeId == null){	return; }
-		
-		// If we have already reached the max depth
-		if (recursiveDepth > max_recursiveDepth){ return; } else { recursiveDepth++;}
-		
-		// Describe the request for given node
-		BrowseDescription[] NodesToBrowse = new BrowseDescription[1];
-		NodesToBrowse[0] = new BrowseDescription();
-		NodesToBrowse[0].setBrowseDirection(BrowseDirection.Forward);
-		
-		// Set node to browse to given Node
-		if(expandedNodeId.getIdType() == IdType.String){
-
-			NodesToBrowse[0].setNodeId( new NodeId(expandedNodeId.getNamespaceIndex(), (String) expandedNodeId.getValue()) );
-		}else if(expandedNodeId.getIdType() == IdType.Numeric){
-
-			NodesToBrowse[0].setNodeId( new NodeId(expandedNodeId.getNamespaceIndex(), (UnsignedInteger) expandedNodeId.getValue()) );
-		}else if(expandedNodeId.getIdType() == IdType.Guid){
-
-			NodesToBrowse[0].setNodeId( new NodeId(expandedNodeId.getNamespaceIndex(), (UUID) expandedNodeId.getValue()) );
-		}else if(expandedNodeId.getIdType() == IdType.Opaque){
-
-			NodesToBrowse[0].setNodeId( new NodeId(expandedNodeId.getNamespaceIndex(), (byte[]) expandedNodeId.getValue()) );
-		} else {
-			// return if no matches, not a valid node?
-		}
-		
-		// Form request
-		BrowseRequest browseRequest = new BrowseRequest();
-		browseRequest.setNodesToBrowse(NodesToBrowse);
-		
-		// Form response, make request 
-		BrowseResponse browseResponse = new BrowseResponse();
-		try {
-			browseResponse = sessionChannel.Browse(browseRequest);
-		} catch (ServiceFaultException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		} catch (ServiceResultException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		
-		// Get results
-		BrowseResult[] browseResults = browseResponse.getResults();
-		
-		// Retrieve reference descriptions for the result set 
-		// 0 index is assumed 
-		ReferenceDescription[] referenceDesc = browseResults[0].getReferences();
-		
-		// Situation 1: There are no result descriptions because we have hit a leaf
-		if(referenceDesc == null){
-			recursiveDepth--;
-			return;
-		}
-		
-		// Situation 2: There are results descriptions and each node must be parsed
-		for(int k = 0; k < referenceDesc.length; k++){
-				
-			//Print indentation	
-			switch (print_indentation) {
-			
-				case "Yes":{
-					for(int j = 0; j < recursiveDepth; j++){
-						stringBuilder.append("- ");
-					}
-				}
-			}
-			
-			
-			
-			// Print the current node
-			stringBuilder.append(referenceDesc[k].getNodeId() + System.lineSeparator());
-			
-			// Print the child node(s)
-			parseNodeTree(sessionChannel, referenceDesc[k].getNodeId());
-		
-		}
-		
-		// we have exhausted the child nodes of the given node
-		recursiveDepth--;
-		return;
-		
-	}
 
 }

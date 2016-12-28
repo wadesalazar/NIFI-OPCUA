@@ -20,14 +20,15 @@ import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.controller.ControllerService;
 import org.apache.nifi.processor.exception.ProcessException;
+import org.opcfoundation.ua.builtintypes.ExpandedNodeId;
 
-@Tags({"example"})
-@CapabilityDescription("Example Service API.")
+@Tags({"OPC Service API"})
+@CapabilityDescription("Provides client API for working with OPC servers")
 public interface OPCUAService extends ControllerService {
 
 	byte[] getValue(String reqTagname) throws ProcessException;
 
-	String getNameSpace(String print_indentation, int max_recursiveDepth, String expandedNodeId)
+	String getNameSpace(String print_indentation, int max_recursiveDepth, ExpandedNodeId expandedNodeId)
 			throws ProcessException;
 
 }

@@ -17,8 +17,6 @@
 
 package com.kentender.nifi.nifi_opcua_bundle;
 
-import static org.opcfoundation.ua.utils.EndpointUtil.selectByProtocol;
-import static org.opcfoundation.ua.utils.EndpointUtil.selectBySecurityPolicy;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.logging.ComponentLog;
@@ -36,22 +34,9 @@ import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.io.InputStreamCallback;
 import org.apache.nifi.processor.io.OutputStreamCallback;
-import org.apache.nifi.processor.util.StandardValidators;
-import org.opcfoundation.ua.application.Client;
-import org.opcfoundation.ua.application.SessionChannel;
-import org.opcfoundation.ua.builtintypes.DataValue;
-import org.opcfoundation.ua.builtintypes.LocalizedText;
-import org.opcfoundation.ua.builtintypes.NodeId;
-import org.opcfoundation.ua.common.ServiceFaultException;
-import org.opcfoundation.ua.common.ServiceResultException;
-import org.opcfoundation.ua.core.Attributes;
-import org.opcfoundation.ua.core.EndpointDescription;
-import org.opcfoundation.ua.core.ReadRequest;
-import org.opcfoundation.ua.core.ReadResponse;
-import org.opcfoundation.ua.core.ReadValueId;
-import org.opcfoundation.ua.core.TimestampsToReturn;
-import org.opcfoundation.ua.transport.security.KeyPair;
-import org.opcfoundation.ua.transport.security.SecurityPolicy;
+
+import com.kentender.nifi.nifi_opcua_services.OPCUAService;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
@@ -68,51 +53,14 @@ import java.util.stream.Collectors;
 @WritesAttributes({@WritesAttribute(attribute="", description="")})
 @InputRequirement(Requirement.INPUT_REQUIRED)
 
-
 public class GetValue extends AbstractProcessor {
 	
-	// TODO add scope for vars
-	public static final Locale ENGLISH = Locale.ENGLISH;
-	static KeyPair myClientApplicationInstanceCertificate = null;
-	static KeyPair myHttpsCertificate = null;
-	static String applicationName = "Apache Nifi";
-	static String url = "";
-	
-	// Create transaction variables
-	Client myClient = null;
-	EndpointDescription[] endpoints = null;
-	SessionChannel mySession = null;
-	ReadResponse res = null;
-
-	public static final PropertyDescriptor ENDPOINT = new PropertyDescriptor
-            .Builder().name("Endpoint URL")
-            .description("the opc.tcp address of the opc ua server")
-            .required(true)
-            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-            .build();
-    
-    public static final PropertyDescriptor SECURITY_POLICY = new PropertyDescriptor
-            .Builder().name("Security Policy")
-            .description("How should Nifi authenticate with the UA server")
-            .required(true)
-            .allowableValues("None", "Basic128Rsa15", "Basic256", "Basic256Rsa256")
-            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-            .build();
-    
-    public static final PropertyDescriptor APPLICATION_NAME = new PropertyDescriptor
-            .Builder().name("Application Name")
-            .description("The application name is used to label certificates identifying this application")
-            .required(true)
-            .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
-            .build();
-    
-    public static final PropertyDescriptor PROTOCOL = new PropertyDescriptor
-            .Builder().name("Transfer Protocol")
-            .description("How should Nifi communicate with the OPC server")
-            .required(true)
-            .allowableValues("opc.tcp")
-            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-            .build();
+	public static final PropertyDescriptor OPCUA_SERVICE = new PropertyDescriptor.Builder()
+			  .name("OPC UA Service")
+			  .description("Specifies the OPC UA Service that can be used to access data")
+			  .required(true)
+			  .identifiesControllerService(OPCUAService.class)
+			  .build();
     
     public static final Relationship SUCCESS = new Relationship.Builder()
             .name("Success")
@@ -131,10 +79,8 @@ public class GetValue extends AbstractProcessor {
     @Override
     protected void init(final ProcessorInitializationContext context) {
         final List<PropertyDescriptor> descriptors = new ArrayList<PropertyDescriptor>();
-        descriptors.add(ENDPOINT);
-        descriptors.add(SECURITY_POLICY);
-        descriptors.add(APPLICATION_NAME);
-        descriptors.add(PROTOCOL);
+        descriptors.add(OPCUA_SERVICE);
+
         this.descriptors = Collections.unmodifiableList(descriptors);
 
         final Set<Relationship> relationships = new HashSet<Relationship>();
@@ -156,13 +102,6 @@ public class GetValue extends AbstractProcessor {
     @OnScheduled
     public void onScheduled(final ProcessContext context) {
     	
-    	final ComponentLog logger = getLogger();
-    	
-    	applicationName = context.getProperty(APPLICATION_NAME).getValue();
-    	url = context.getProperty(ENDPOINT).getValue();
-		
-    	
-		
 	}
 
     /* (non-Javadoc)
@@ -174,10 +113,10 @@ public class GetValue extends AbstractProcessor {
     	final ComponentLog logger = getLogger();
     	
     	// Initialize  response variable
-        final AtomicReference<String> reqTagname = new AtomicReference<>();
-        final AtomicReference<String> serverResponse = new AtomicReference<>();
+        final AtomicReference<String> requestedTagname = new AtomicReference<>();
         
         
+        // get FlowFile
         FlowFile flowFile = session.get();
         if ( flowFile == null ) {
             return;
@@ -192,7 +131,7 @@ public class GetValue extends AbstractProcessor {
                 	String tagname = new BufferedReader(new InputStreamReader(in))
                 	  .lines().collect(Collectors.joining("\n"));
 
-                    reqTagname.set(tagname);
+                    requestedTagname.set(tagname);
                     
                 }catch (Exception e) {
         			// TODO Auto-generated catch block
@@ -203,38 +142,22 @@ public class GetValue extends AbstractProcessor {
             
         });
         
-        // Create an instance of OPCUA Server and submit getValue
-        
+        // Submit to getValue
+        final OPCUAService opcUAService = context.getProperty(OPCUA_SERVICE)
+        		.asControllerService(OPCUAService.class);
        
   		// Write the results back out to flow file
         flowFile = session.write(flowFile, new OutputStreamCallback() {
 
             @Override
             public void process(OutputStream out) throws IOException {
-            	out.write(serverResponse.get().getBytes());
+            	out.write(opcUAService.getValue(requestedTagname.get()));
             	
             }
             
         });
         
         session.transfer(flowFile, SUCCESS);
-        
-        // Close the session 
-        
-        /*
-         * ( is this necessary or common practice.  
-         * Timeouts clean up abandoned sessions ??? )*
-         */
-        
-        try {
-			mySession.close();
-		} catch (ServiceFaultException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		} catch (ServiceResultException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
         
     }
     

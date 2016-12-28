@@ -49,5 +49,10 @@
             <artifactId>junit</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+        	<groupId>com.kentender.nifi</groupId>
+        	<artifactId>nifi-opcua-service-api</artifactId>
+        	<version>0.0.1-SNAPSHOT</version>
+        </dependency>
     </dependencies>
 </project>

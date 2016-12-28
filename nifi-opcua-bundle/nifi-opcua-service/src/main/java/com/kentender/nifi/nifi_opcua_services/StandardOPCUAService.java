@@ -19,19 +19,11 @@ package com.kentender.nifi.nifi_opcua_services;
 import static org.opcfoundation.ua.utils.EndpointUtil.selectByProtocol;
 import static org.opcfoundation.ua.utils.EndpointUtil.selectBySecurityPolicy;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.stream.Collectors;
-
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnDisabled;
@@ -39,11 +31,8 @@ import org.apache.nifi.annotation.lifecycle.OnEnabled;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.controller.AbstractControllerService;
 import org.apache.nifi.controller.ConfigurationContext;
-import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.processor.exception.ProcessException;
-import org.apache.nifi.processor.io.InputStreamCallback;
-import org.apache.nifi.processor.io.OutputStreamCallback;
 import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.reporting.InitializationException;
 import org.opcfoundation.ua.application.Client;
@@ -72,25 +61,21 @@ import org.opcfoundation.ua.core.ReferenceDescription;
 import org.opcfoundation.ua.core.TimestampsToReturn;
 import org.opcfoundation.ua.transport.security.KeyPair;
 import org.opcfoundation.ua.transport.security.SecurityPolicy;
+import org.opcfoundation.ua.utils.EndpointUtil;
 
 
 @Tags({ "example"})
 @CapabilityDescription("Example ControllerService implementation of MyService.")
 public class StandardOPCUAService extends AbstractControllerService implements OPCUAService {
 	
-		// TODO add scope for vars
-	public static final Locale ENGLISH = Locale.ENGLISH;
-	static KeyPair myClientApplicationInstanceCertificate = null;
-	static KeyPair myHttpsCertificate = null;
-	static String applicationName = "Apache Nifi";
-	static String url = "";
+	// Redundant application varibles
+	private static String applicationName = "Apache Nifi";
+	private static String securityPolicy = "None";
+	private static String url = "";
 	
-	// Create transaction variables
-	Client myClient = null;
-	EndpointDescription[] endpoints = null;
-	static SessionChannel mySession = null;
-	ActivateSessionResponse actSessionRes = null;
-	ReadResponse res = null;
+	// Create session variables
+	private static SessionChannel mySession = null;
+	private static ActivateSessionResponse activateSessionResponse = null;
 
 	public static final PropertyDescriptor ENDPOINT = new PropertyDescriptor
             .Builder().name("Endpoint URL")
@@ -140,33 +125,40 @@ public class StandardOPCUAService extends AbstractControllerService implements O
     	
     	final ComponentLog logger = getLogger();
     	
-    	// Retrieve property values 
+    	KeyPair myClientApplicationInstanceCertificate = null;
+    	KeyPair myHttpsCertificate = null;
+    	Client myClient = null;
+    	EndpointDescription endpoint = null;
+    	
+    	// should be handled through getter & setter ???
     	applicationName = context.getProperty(APPLICATION_NAME).getValue();
+    	securityPolicy = context.getProperty(SECURITY_POLICY).getValue();
     	url = context.getProperty(ENDPOINT).getValue();
     	
-    	// Initialize OPC UA Client
+		// Initialize OPC UA Client
     	logger.debug("Creating Certificates");
-    	getCertificates(context);
+    	myHttpsCertificate = Utils.getHttpsCert(applicationName);
+    	myClientApplicationInstanceCertificate = getCertificates(securityPolicy, applicationName);
+    	
     	logger.debug("Creating Client");
-    	createClient();
-    	logger.debug("Refreshing enpoints");
-    	refreshEndpoints(context);
+    	myClient = createClient(myClientApplicationInstanceCertificate, myHttpsCertificate, applicationName);
+    	
+    	logger.debug("Validating URL as endpoint");
+    	endpoint = validateEndpoint(myClient, url, securityPolicy);
+    	
     	logger.debug("Initialization Complete");
     	
     	// Create and activate session
   		try {
-  			// TODO pick a method for handling situations where more than one end point remains
-  			// This step is very costly in terms of communication efficiency
-  			// TODO replace with a service to manage the Session Channel, only using create when ???
-  			mySession = myClient.createSessionChannel(endpoints[0]);
-  			actSessionRes = mySession.activate();
+  			mySession = myClient.createSessionChannel(endpoint);
+  			activateSessionResponse = mySession.activate();
   			
   		} catch (ServiceResultException e1) {
   			// TODO Auto-generated catch block THIS NEEDS TO FAIL IN A SPECIAL WAY TO BE RE TRIED 
   			e1.printStackTrace();
   		}
 		
-  		logger.debug("OPC UA client ready");
+  		logger.debug("OPC UA client session ready");
 
     }
 
@@ -197,19 +189,23 @@ public class StandardOPCUAService extends AbstractControllerService implements O
 	@Override
 	public byte[] getValue(String reqTagname) throws ProcessException {
 
+		
+		// TODO presently this method accepts a tag name as input and fetches a value for that tag
+		// A future version will need to be able to acquire a value from a specific time in the past 
+		
 		final ComponentLog logger = getLogger();
 		
 		String serverResponse = "";
 		
 		try {
-			mySession.activate(actSessionRes.getServerNonce());
+			mySession.activate(activateSessionResponse.getServerNonce());
 		} catch (ServiceResultException e1) {
 			// TODO Auto-generated catch block
 			e1.printStackTrace();
 		}
     	
         ReadValueId[] NodesToRead = { 
-				new ReadValueId(NodeId.parseNodeId(reqTagname), Attributes.Value, null, null )
+			new ReadValueId(NodeId.parseNodeId(reqTagname), Attributes.Value, null, null )
 		};
         
         // Form OPC request
@@ -221,12 +217,10 @@ public class StandardOPCUAService extends AbstractControllerService implements O
 
   		// Submit OPC Read and handle response
   		try{
-          	res = mySession.Read(req);
-              DataValue[] values = res.getResults();
-              // TODO need to check the result for errors and other quality issues
-              serverResponse = reqTagname + "," + values[0].getValue().toString()  + ","+ values[0].getServerTimestamp().toString();
-              // Write the results back out to flow file
-              
+  			ReadResponse readResponse = mySession.Read(req);
+            DataValue[] values = readResponse.getResults();
+            // TODO need to check the result for errors and other quality issues
+            serverResponse = reqTagname + "," + values[0].getValue().toString()  + ","+ values[0].getServerTimestamp().toString();
               
           }catch (Exception e) {
   			// TODO Auto-generated catch block
@@ -238,35 +232,32 @@ public class StandardOPCUAService extends AbstractControllerService implements O
 	}
 
 	@Override
-	public String getNameSpace(String print_indentation, int max_recursiveDepth, String expandedNodeId) throws ProcessException {
+	public String getNameSpace(String print_indentation, int max_recursiveDepth, ExpandedNodeId expandedNodeId) throws ProcessException {
 		
-		// Set the starting node and parse the node tree
-		if ( expandedNodeId == null) {
-			return parseNodeTree(print_indentation, max_recursiveDepth, new ExpandedNodeId(Identifiers.RootFolder));
-			
-		} else {
-			return parseNodeTree(print_indentation, max_recursiveDepth, new ExpandedNodeId(NodeId.parseNodeId(expandedNodeId)));
-		}
-		
-		
+		return parseNodeTree(print_indentation, 0, max_recursiveDepth, expandedNodeId);
+	
 	}
 	
-	private void refreshEndpoints(final ConfigurationContext context){
+	private EndpointDescription validateEndpoint(Client client, String security_policy, String url){
+	
+		// TODO This method should provide feedback
 		
-    	final ComponentLog logger = getLogger();
+		final ComponentLog logger = getLogger();
     	
 		// Retrieve and filter end point list
 		// TODO need to move this to service or on schedule method
 				
+		EndpointDescription[] endpoints = null;
+		
 		try {
-			endpoints = myClient.discoverEndpoints(url);
+			endpoints = client.discoverEndpoints(url);
 		} catch (ServiceResultException e1) {
 			// TODO Auto-generated catch block
 			
 			logger.error(e1.getMessage());
 		}
 		
-		switch (context.getProperty(SECURITY_POLICY).getValue()) {
+		switch (security_policy) {
 			
 			case "Basic128Rsa15":{
 				endpoints = selectBySecurityPolicy(endpoints,SecurityPolicy.BASIC128RSA15);
@@ -290,56 +281,56 @@ public class StandardOPCUAService extends AbstractControllerService implements O
 		// For now only opc.tcp has been implemented
 		endpoints = selectByProtocol(endpoints, "opc.tcp");
 		
+		// Finally confirm the provided end point is in the list
+		endpoints = EndpointUtil.selectByUrl(endpoints, url);
+		
+		// There should only be one item left in the list
+		return endpoints[0];
+		
 	}
 	
-	private void getCertificates(final ConfigurationContext context){
+	private KeyPair getCertificates(String security_policy, String application_name ){
+		
 		final ComponentLog logger = getLogger();
     			
     	// Load Client's certificates from file or create new certs
-		if (context.getProperty(SECURITY_POLICY).getValue() == "None"){
-			// Build OPC Client
-			myClientApplicationInstanceCertificate = null;
-						
-		} else {
-
-			myHttpsCertificate = Utils.getHttpsCert(applicationName);
-			
-			// Load or create HTTP and Client's Application Instance Certificate and key
-			switch (context.getProperty(SECURITY_POLICY).getValue()) {
+		switch (security_policy) {
+		
+			case "None":{
 				
-				case "Basic128Rsa15":{
-					myClientApplicationInstanceCertificate = Utils.getCert(applicationName, SecurityPolicy.BASIC128RSA15);
-					break;
-					
-				}case "Basic256": {
-					myClientApplicationInstanceCertificate = Utils.getCert(applicationName, SecurityPolicy.BASIC256);
-					break;
-					
-				}case "Basic256Rsa256": {
-					myClientApplicationInstanceCertificate = Utils.getCert(applicationName, SecurityPolicy.BASIC256SHA256);
-					break;
-				}
+			}case "Basic128Rsa15":{
+			
+				return Utils.getCert(application_name, SecurityPolicy.BASIC128RSA15);
+				
+			}case "Basic256": {
+				
+				return Utils.getCert(application_name, SecurityPolicy.BASIC256);
+				
+			}case "Basic256Rsa256": {
+				
+				return Utils.getCert(application_name, SecurityPolicy.BASIC256SHA256);
+				
 			}
 		}
+		return null;
 	}
 	
-	private void createClient(){
-		// Create Client
-		// TODO need to move this to service or on schedule method
-		myClient = Client.createClientApplication( myClientApplicationInstanceCertificate ); 
-		myClient.getApplication().getHttpsSettings().setKeyPair(myHttpsCertificate);
-		myClient.getApplication().addLocale( ENGLISH );
-		myClient.getApplication().setApplicationName( new LocalizedText(applicationName, Locale.ENGLISH) );
-		myClient.getApplication().setProductUri( "urn:" + applicationName );
+	private Client createClient(
+			KeyPair myClientApplicationInstanceCertificate, 
+			KeyPair myHttpsCertificate, 
+			String applicationName){
 		
-	}
-	
-	private static String parseNodeTree(
-			String print_indentation, 
-			int max_recursiveDepth, 
-			ExpandedNodeId expandedNodeId){
+		Locale ENGLISH = Locale.ENGLISH;
 		
-		return parseNodeTree(print_indentation, 0, max_recursiveDepth, expandedNodeId);
+		// Build client application
+		Client client = Client.createClientApplication( myClientApplicationInstanceCertificate ); 
+		client.getApplication().getHttpsSettings().setKeyPair(myHttpsCertificate);
+		client.getApplication().addLocale( ENGLISH );
+		client.getApplication().setApplicationName( new LocalizedText(applicationName, Locale.ENGLISH) );
+		client.getApplication().setProductUri( "urn:" + applicationName );
+		
+		return client;
+		
 	}
 	
 	private static String parseNodeTree(
@@ -348,13 +339,14 @@ public class StandardOPCUAService extends AbstractControllerService implements O
 			int max_recursiveDepth, 
 			ExpandedNodeId expandedNodeId){
 		
+		
 		StringBuilder stringBuilder = new StringBuilder();
 		
 		// Conditions for exiting this function
 		// If provided node is null ( should not happen )
 		if(expandedNodeId == null){	return null; }
 		
-		// If we have already reached the max depth
+		// Have we already reached the max depth? Exit if so
 		if (recursiveDepth > max_recursiveDepth){ return null; }
 		
 		// Describe the request for given node
@@ -376,7 +368,7 @@ public class StandardOPCUAService extends AbstractControllerService implements O
 
 			NodesToBrowse[0].setNodeId( new NodeId(expandedNodeId.getNamespaceIndex(), (byte[]) expandedNodeId.getValue()) );
 		} else {
-			// return if no matches, not a valid node?
+			// Return if no matches. Is this not a valid node?
 		}
 		
 		// Form request
@@ -399,7 +391,7 @@ public class StandardOPCUAService extends AbstractControllerService implements O
 		BrowseResult[] browseResults = browseResponse.getResults();
 		
 		// Retrieve reference descriptions for the result set 
-		// 0 index is assumed 
+		// 0 index is assumed !!!
 		ReferenceDescription[] referenceDesc = browseResults[0].getReferences();
 		
 		// Situation 1: There are no result descriptions because we have hit a leaf

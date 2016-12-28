@@ -12,5 +12,5 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-com.kentender.nifi.nifi_opcua_bundle.GetExpandedNodeIds.class
-com.kentender.nifi.nifi_opcua_bundle.GetValues.class
+com.kentender.nifi.nifi_opcua_bundle.GetExpandedNodeIds
+com.kentender.nifi.nifi_opcua_bundle.GetValue
