@@ -30,5 +30,6 @@ public interface OPCUAService extends ControllerService {
 
 	String getNameSpace(String print_indentation, int max_recursiveDepth, ExpandedNodeId expandedNodeId)
 			throws ProcessException;
-
+	
+	boolean updateSession();
 }

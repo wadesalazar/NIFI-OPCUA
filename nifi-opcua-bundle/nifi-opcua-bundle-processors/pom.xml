@@ -51,7 +51,7 @@
         </dependency>
         <dependency>
         	<groupId>com.kentender.nifi</groupId>
-        	<artifactId>nifi-opcua-service-api</artifactId>
+        	<artifactId>nifi-opcua-service</artifactId>
         	<version>0.0.1-SNAPSHOT</version>
         </dependency>
     </dependencies>

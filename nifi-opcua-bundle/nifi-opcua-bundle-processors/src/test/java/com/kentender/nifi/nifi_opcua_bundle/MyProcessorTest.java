@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.kentender.nifi.processors.${artifactBaseName};
+package com.kentender.nifi.nifi_opcua_bundle;
 
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;

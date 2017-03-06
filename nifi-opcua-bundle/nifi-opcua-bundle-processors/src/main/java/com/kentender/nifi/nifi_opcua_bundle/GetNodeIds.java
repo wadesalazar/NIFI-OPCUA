@@ -130,15 +130,22 @@ public class GetNodeIds extends AbstractProcessor {
 		 // Submit to getValue
         final OPCUAService opcUAService = context.getProperty(OPCUA_SERVICE)
         		.asControllerService(OPCUAService.class);
+        
 		
+        if(opcUAService.updateSession()){
+        	logger.debug("Session Updated");
+        }else {
+        	logger.debug("Session Update Failed");
+        }
+        
 		// Set the starting node and parse the node tree
 		if ( starting_node == null) {
 			logger.debug("Parse the root node " + new ExpandedNodeId(Identifiers.RootFolder));
-			opcUAService.getNameSpace(print_indentation, max_recursiveDepth, new ExpandedNodeId(Identifiers.RootFolder));
+			stringBuilder.append(opcUAService.getNameSpace(print_indentation, max_recursiveDepth, new ExpandedNodeId(Identifiers.RootFolder)));
 			
 		} else {
 			logger.debug("Parse the result list for node " + new ExpandedNodeId(NodeId.parseNodeId(starting_node)));
-			opcUAService.getNameSpace(print_indentation, max_recursiveDepth, new ExpandedNodeId(NodeId.parseNodeId(starting_node)));
+			stringBuilder.append(opcUAService.getNameSpace(print_indentation, max_recursiveDepth, new ExpandedNodeId(NodeId.parseNodeId(starting_node))));
 		}
 		
 		// Write the results back out to a flow file
