@@ -114,7 +114,9 @@ public class GetValue extends AbstractProcessor {
     	
     	// Initialize  response variable
         final AtomicReference<String> requestedTagname = new AtomicReference<>();
-                
+        
+        
+        
         // get FlowFile
         FlowFile flowFile = session.get();
         if ( flowFile == null ) {
@@ -145,9 +147,9 @@ public class GetValue extends AbstractProcessor {
         		.asControllerService(OPCUAService.class);
        
         if(opcUAService.updateSession()){
-        	logger.debug("Session Updated");
+        	logger.debug("Session current");
         }else {
-        	logger.debug("Session Update Failed");
+        	logger.debug("Session update failed");
         }
         
   		// Write the results back out to flow file

@@ -16,11 +16,9 @@
  */
 package com.kentender.nifi.nifi_opcua_services;
 
-import static org.opcfoundation.ua.utils.EndpointUtil.selectByProtocol;
 import static org.opcfoundation.ua.utils.EndpointUtil.selectBySecurityPolicy;
 
 import java.io.File;
-import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -55,7 +53,6 @@ import org.opcfoundation.ua.core.BrowseResponse;
 import org.opcfoundation.ua.core.BrowseResult;
 import org.opcfoundation.ua.core.EndpointDescription;
 import org.opcfoundation.ua.core.IdType;
-import org.opcfoundation.ua.core.Identifiers;
 import org.opcfoundation.ua.core.MessageSecurityMode;
 import org.opcfoundation.ua.core.ReadRequest;
 import org.opcfoundation.ua.core.ReadResponse;
@@ -77,7 +74,7 @@ public class StandardOPCUAService extends AbstractControllerService implements O
 	private static SessionChannel mySession = null;
 	private static EndpointDescription endpointDescription = null;
 	private static ActivateSessionResponse activateSessionResponse = null;
-	private double timestamp = null;
+	private double timestamp;
 
 	// Properties 
 	public static final PropertyDescriptor ENDPOINT = new PropertyDescriptor
@@ -259,10 +256,11 @@ public class StandardOPCUAService extends AbstractControllerService implements O
 		
 		try {
 			
-			timestamp = System.currentTimeMillis();
+			
 			mySession = myClient.createSessionChannel(endpointDescription);
 			activateSessionResponse = mySession.activate();
 			
+			timestamp = System.currentTimeMillis();
 			
 		} catch (ServiceResultException e) {
 			// TODO Auto-generated catch block
@@ -279,28 +277,25 @@ public class StandardOPCUAService extends AbstractControllerService implements O
 		
 		final ComponentLog logger = getLogger();
 		double elapsedTime = System.currentTimeMillis() - timestamp;
-		logger.debug("Time out is:" + mySession.getSession().getSessionTimeout());
 		
-		if ((elapsedTime - 10 ) < mySession.getSession().getSessionTimeout()){
-			
-			logger.debug("The session " + mySession.getSession().getAuthenticationToken() + " is a ok");
+		if ((elapsedTime ) > mySession.getSession().getSessionTimeout()){
+			return true;
 			
 		}else{
 			try {
-  				logger.debug("Creating new session");
 				mySession = myClient.createSessionChannel(endpointDescription);
 				mySession.activate();
+				
+				timestamp = System.currentTimeMillis();
+				
+				return true;
+				
 			} catch (ServiceResultException e) {
 				logger.debug("Error while creating new session: ");
 				logger.error(e.getMessage());
 				return false;
 			}
-			
 		}
-		
-
-		return true;
-		
 	}
     
     
@@ -341,14 +336,6 @@ public class StandardOPCUAService extends AbstractControllerService implements O
 		// A future version will need to be able to acquire a value from a specific time in the past 
 		
 		String serverResponse = "";
-		
-		try {
-			mySession.activate(activateSessionResponse.getServerNonce());
-		} catch (ServiceResultException e1) {
-			// TODO Auto-generated catch block
-			e1.printStackTrace();
-			logger.debug("Session failed to activate " + e1.getMessage());
-		}
     	
         ReadValueId[] NodesToRead = { 
 			new ReadValueId(NodeId.parseNodeId(reqTagname), Attributes.Value, null, null )
@@ -399,7 +386,6 @@ public class StandardOPCUAService extends AbstractControllerService implements O
 		// Retrieve end point list
 		EndpointDescription[] endpoints = null;
 		
-		
 		// This assumes the provided url is co-served with the discovery server
 		try {
 			endpoints = client.discoverEndpoints(discoveryServer);
@@ -417,9 +403,6 @@ public class StandardOPCUAService extends AbstractControllerService implements O
 		return true;
 		
 	}
-	
-
-	
 	
 	private static String parseNodeTree(
 			String print_indentation, 

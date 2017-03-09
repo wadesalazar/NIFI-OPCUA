@@ -131,11 +131,10 @@ public class GetNodeIds extends AbstractProcessor {
         final OPCUAService opcUAService = context.getProperty(OPCUA_SERVICE)
         		.asControllerService(OPCUAService.class);
         
-		
         if(opcUAService.updateSession()){
-        	logger.debug("Session Updated");
+        	logger.debug("Session current");
         }else {
-        	logger.debug("Session Update Failed");
+        	logger.debug("Session update failed");
         }
         
 		// Set the starting node and parse the node tree
