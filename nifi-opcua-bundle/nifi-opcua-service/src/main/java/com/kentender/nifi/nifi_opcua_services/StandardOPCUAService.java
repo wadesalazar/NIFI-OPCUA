@@ -278,11 +278,16 @@ public class StandardOPCUAService extends AbstractControllerService implements O
 		final ComponentLog logger = getLogger();
 		double elapsedTime = System.currentTimeMillis() - timestamp;
 		
-		if ((elapsedTime ) > mySession.getSession().getSessionTimeout()){
+		if ((elapsedTime ) < mySession.getSession().getSessionTimeout()){
+			
+			timestamp = System.currentTimeMillis();
+			
 			return true;
 			
 		}else{
 			try {
+				
+				// TODO future should support multi session management 
 				mySession = myClient.createSessionChannel(endpointDescription);
 				mySession.activate();
 				
