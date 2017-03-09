@@ -20,6 +20,7 @@ import static org.opcfoundation.ua.utils.EndpointUtil.selectByProtocol;
 import static org.opcfoundation.ua.utils.EndpointUtil.selectBySecurityPolicy;
 
 import java.io.File;
+import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -76,6 +77,7 @@ public class StandardOPCUAService extends AbstractControllerService implements O
 	private static SessionChannel mySession = null;
 	private static EndpointDescription endpointDescription = null;
 	private static ActivateSessionResponse activateSessionResponse = null;
+	private double timestamp = null;
 
 	// Properties 
 	public static final PropertyDescriptor ENDPOINT = new PropertyDescriptor
@@ -188,7 +190,7 @@ public class StandardOPCUAService extends AbstractControllerService implements O
 				myOwnCert = Cert.load(myCertFile);
 				
 			} catch (Exception e1) {
-				logger.error(e1.getMessage());
+				logger.debug("Error loading certificate " + e1.getMessage());
 			}
 			
 			// Describe end point
@@ -196,6 +198,7 @@ public class StandardOPCUAService extends AbstractControllerService implements O
 			endpointDescription.setEndpointUrl(context.getProperty(ENDPOINT).getValue());
 			endpointDescription.setServerCertificate(myOwnCert.getEncoded());
 			endpointDescription.setSecurityMode(MessageSecurityMode.Sign);
+						
 			switch (context.getProperty(SECURITY_POLICY).getValue()) {
 				case "Basic128Rsa15":{
 					endpointDescription.setSecurityPolicyUri(SecurityPolicy.BASIC128RSA15.getPolicyUri());
@@ -245,23 +248,22 @@ public class StandardOPCUAService extends AbstractControllerService implements O
 			}
 			
 			// set the provided end point url to match the given one ( for local host problem )
-			// endpointDescription =  endpointDescriptions[0].clone();
 			endpointDescription = EndpointUtil.selectByUrl(endpointDescriptions, context.getProperty(ENDPOINT).getValue())[0];
 	 	}
 		
-		
-		// logger.debug("Validating URL as endpoint");
-    	// endpoint = validateEndpoint(myClient, context.getProperty(ENDPOINT).getValue(), context.getProperty(SECURITY_POLICY).getValue());
-    	
-    	logger.debug("Initialization Complete");
+		logger.debug("Initialization Complete");
     	
     	// Create and activate session
     	
     	logger.debug("Using endpoint: " + endpointDescription.toString());
 		
 		try {
+			
+			timestamp = System.currentTimeMillis();
 			mySession = myClient.createSessionChannel(endpointDescription);
 			activateSessionResponse = mySession.activate();
+			
+			
 		} catch (ServiceResultException e) {
 			// TODO Auto-generated catch block
 			logger.debug("Error while creating initial SessionChannel: ");
@@ -273,6 +275,35 @@ public class StandardOPCUAService extends AbstractControllerService implements O
 
     }
 
+	public boolean updateSession(){
+		
+		final ComponentLog logger = getLogger();
+		double elapsedTime = System.currentTimeMillis() - timestamp;
+		logger.debug("Time out is:" + mySession.getSession().getSessionTimeout());
+		
+		if ((elapsedTime - 10 ) < mySession.getSession().getSessionTimeout()){
+			
+			logger.debug("The session " + mySession.getSession().getAuthenticationToken() + " is a ok");
+			
+		}else{
+			try {
+  				logger.debug("Creating new session");
+				mySession = myClient.createSessionChannel(endpointDescription);
+				mySession.activate();
+			} catch (ServiceResultException e) {
+				logger.debug("Error while creating new session: ");
+				logger.error(e.getMessage());
+				return false;
+			}
+			
+		}
+		
+
+		return true;
+		
+	}
+    
+    
     @OnDisabled
     public void shutdown() {
     	// Close the session 
@@ -305,7 +336,7 @@ public class StandardOPCUAService extends AbstractControllerService implements O
 	@Override
 	public byte[] getValue(String reqTagname) throws ProcessException {
 
-		
+		final ComponentLog logger = getLogger();
 		// TODO presently this method accepts a tag name as input and fetches a value for that tag
 		// A future version will need to be able to acquire a value from a specific time in the past 
 		
@@ -316,6 +347,7 @@ public class StandardOPCUAService extends AbstractControllerService implements O
 		} catch (ServiceResultException e1) {
 			// TODO Auto-generated catch block
 			e1.printStackTrace();
+			logger.debug("Session failed to activate " + e1.getMessage());
 		}
     	
         ReadValueId[] NodesToRead = { 
@@ -359,83 +391,35 @@ public class StandardOPCUAService extends AbstractControllerService implements O
 	
 	}
 	
-	private EndpointDescription validateEndpoint(Client client, String security_policy, String url){
+	private boolean validateEndpoint(Client client, String security_policy, String discoveryServer, String url){
 	
 		// TODO This method should provide feedback
-		
 		final ComponentLog logger = getLogger();
     	
-		// Retrieve and filter end point list
-		// TODO need to move this to service or on schedule method
-				
+		// Retrieve end point list
 		EndpointDescription[] endpoints = null;
 		
+		
+		// This assumes the provided url is co-served with the discovery server
 		try {
-			endpoints = client.discoverEndpoints(url);
+			endpoints = client.discoverEndpoints(discoveryServer);
 		} catch (ServiceResultException e1) {
-			// TODO Auto-generated catch block
-			
 			logger.error(e1.getMessage());
 		}
 		
-		switch (security_policy) {
-			
-			case "Basic128Rsa15":{
-				endpoints = selectBySecurityPolicy(endpoints,SecurityPolicy.BASIC128RSA15);
-				break;
-			}
-			case "Basic256": {
-				endpoints = selectBySecurityPolicy(endpoints,SecurityPolicy.BASIC256);
-				break;
-			}	
-			case "Basic256Rsa256": {
-				endpoints = selectBySecurityPolicy(endpoints,SecurityPolicy.BASIC256SHA256);
-				break;
-			}
-			default :{
-				endpoints = selectBySecurityPolicy(endpoints,SecurityPolicy.NONE);
-				logger.error("No security mode specified");
-				break;
-			}
-		}
-		
-		// For now only opc.tcp has been implemented
-		endpoints = selectByProtocol(endpoints, "opc.tcp");
-		
-		// Finally confirm the provided end point is in the list
+		// Finally confirm the provided endpoint is in the list of 
 		endpoints = EndpointUtil.selectByUrl(endpoints, url);
+		
+		logger.debug(endpoints.length + "endpoints found");
 		
 		// There should only be one item left in the list
 		// TODO Servers with multiple nic cards have more than one left in the list
-		return endpoints[0];
-		
-	}
-	
-	public boolean updateSession(){
-		
-		final ComponentLog logger = getLogger();
-		
-		// Test session and if closed create and activate new session 
-    	try {
-    		mySession.activate();
-  		} catch (ServiceResultException e1) {
-  			
-  			logger.debug("The session " + mySession.getSession().getAuthenticationToken() + " has timed out.");
-  			try {
-  				logger.debug("Creating new session");
-				mySession = myClient.createSessionChannel(endpointDescription);
-				mySession.activate();
-			} catch (ServiceResultException e) {
-				logger.debug("Error while creating new session: ");
-				logger.error(e.getMessage());
-				return false;
-			}
-  			
-  		}
-    	
 		return true;
 		
 	}
+	
+
+	
 	
 	private static String parseNodeTree(
 			String print_indentation, 

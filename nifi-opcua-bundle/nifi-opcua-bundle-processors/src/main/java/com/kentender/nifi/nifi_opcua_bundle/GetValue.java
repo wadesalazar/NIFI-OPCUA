@@ -114,14 +114,12 @@ public class GetValue extends AbstractProcessor {
     	
     	// Initialize  response variable
         final AtomicReference<String> requestedTagname = new AtomicReference<>();
-        
-        
+                
         // get FlowFile
         FlowFile flowFile = session.get();
         if ( flowFile == null ) {
             return;
         }
-        
         // Read tag name from flow file content
         session.read(flowFile, new InputStreamCallback() {
             @Override
@@ -146,6 +144,12 @@ public class GetValue extends AbstractProcessor {
         final OPCUAService opcUAService = context.getProperty(OPCUA_SERVICE)
         		.asControllerService(OPCUAService.class);
        
+        if(opcUAService.updateSession()){
+        	logger.debug("Session Updated");
+        }else {
+        	logger.debug("Session Update Failed");
+        }
+        
   		// Write the results back out to flow file
         flowFile = session.write(flowFile, new OutputStreamCallback() {
 
